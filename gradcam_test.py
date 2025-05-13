@@ -10,7 +10,7 @@ from torchvision import transforms
 
 
 # ============================
-# 1. 모델 정의 (학습할 때와 동일)
+# 1. 모델 정의
 # ============================
 
 class PneumoniaCNN(nn.Module):

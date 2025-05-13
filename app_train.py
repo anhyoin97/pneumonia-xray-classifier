@@ -102,4 +102,4 @@ for epoch in range(3):
 # ============================
 
 torch.save(model.state_dict(), 'pneumonia_cnn.pth')
-print("✅ 모델 저장 완료: pneumonia_cnn.pth")
+print("모델 저장 완료: pneumonia_cnn.pth")
