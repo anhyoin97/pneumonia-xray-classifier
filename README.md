@@ -35,12 +35,14 @@ transform = transforms.Compose([
 ```
 
 - `chest_xray` 데이터로 학습
-- 폐렴, 정상 이미지 모두 비교적 잘 분류함
+- 폐렴이미지 잘 분류 / 정상이미지 애매하게 분류
 - Grad-CAM 시각화 결과: **폐 중심보다는 외곽에 집중**
+
+![image](https://github.com/user-attachments/assets/c5a40933-9453-4b9f-bd1a-dd62bc07e289)
 
 ---
 
-### 2. 중앙 집중 학습 적용 (실패)
+### 2. 중앙 집중 학습 적용
 #### 2024.05.13
 ```python
 class CentralFocus:
@@ -53,6 +55,8 @@ class CentralFocus:
 - `NORMAL` 이미지에 중앙만 선명하게 보여주도록 Blur 처리
 - **결과: 정상 이미지를 폐렴으로 잘못 판단하는 경향 증가**
 - 폐렴 확률 1.00으로 과확신 → False Positive 급증
+
+![image](https://github.com/user-attachments/assets/de7ba00b-8241-4ac3-8736-f26d2452c330)
 
 ---
 
@@ -67,6 +71,9 @@ if self.central_focus:
 - Grad-CAM 시선은 조금 개선되었으나, 여전히 NORMAL 정확도 낮음
 - **결과: 중앙 집중 기법은 현재 모델의 성능을 저하시킴**
 - 최종 모델은 **Augmentation만 적용한 baseline 버전이 가장 안정적**
+
+![image](https://github.com/user-attachments/assets/5a1ac055-87d3-41b4-8c3c-5c139cf78654)
+
 ---
 
 
