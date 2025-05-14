@@ -1,44 +1,19 @@
-import os
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import matplotlib.pyplot as plt
+from torchvision import models, transforms
 from PIL import Image
-from PIL import Image as PILImage  
-from torchvision import transforms
-
-
-# ============================
-# 1. 모델 정의
-# ============================
-
-class PneumoniaCNN(nn.Module):
-    def __init__(self):
-        super(PneumoniaCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, 3, padding=1)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(16, 32, 3, padding=1)  # Grad-CAM 대상
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(32 * 56 * 56, 128)
-        self.fc2 = nn.Linear(128, 2)
-
-    def forward(self, x):
-        x = self.pool1(F.relu(self.conv1(x)))
-        self.feature_maps = F.relu(self.conv2(x))  # <-- Hook 대상
-        x = self.pool2(self.feature_maps)
-        x = x.view(-1, 32 * 56 * 56)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+import matplotlib.pyplot as plt
+import numpy as np
+import cv2
+import os
 
 # ============================
-# 2. Grad-CAM 클래스
+# 1. 모델 정의 및 로딩
 # ============================
 
-class GradCAM:
+class GradCAMResNet:
     def __init__(self, model, target_layer):
-        self.model = model
+        self.model = model.eval()
         self.target_layer = target_layer
         self.gradients = None
         self.activations = None
@@ -47,37 +22,53 @@ class GradCAM:
     def _register_hooks(self):
         def forward_hook(module, input, output):
             self.activations = output.detach()
-        def backward_hook(module, grad_input, grad_output):
-            self.gradients = grad_output[0].detach()
+
+        def backward_hook(module, grad_in, grad_out):
+            self.gradients = grad_out[0].detach()
+
         self.target_layer.register_forward_hook(forward_hook)
         self.target_layer.register_backward_hook(backward_hook)
 
     def generate(self, input_tensor, class_idx=None):
         output = self.model(input_tensor)
         if class_idx is None:
-            class_idx = torch.argmax(output, dim=1).item()
+            class_idx = torch.argmax(output)
+
         self.model.zero_grad()
-        loss = output[0, class_idx]
-        loss.backward()
+        class_score = output[0, class_idx]
+        class_score.backward()
 
-        weights = torch.mean(self.gradients, dim=(2, 3), keepdim=True)
-        grad_cam = torch.sum(weights * self.activations, dim=1).squeeze()
-        grad_cam = F.relu(grad_cam)
-        grad_cam -= grad_cam.min()
-        grad_cam /= grad_cam.max()
-        return grad_cam.cpu().numpy()
+        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
+        weighted_activations = self.activations[0] * pooled_gradients[:, None, None]
+        heatmap = weighted_activations.sum(dim=0).cpu().numpy()
+        heatmap = np.maximum(heatmap, 0)
+        heatmap /= np.max(heatmap) if np.max(heatmap) != 0 else 1
+        return heatmap
 
 # ============================
-# 3. 모델 불러오기
+# 2. 모델 불러오기
 # ============================
+
+from torchvision.models import resnet18
+import torch.nn as nn
+
+def get_resnet18():
+    model = resnet18(pretrained=False)
+    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    model.fc = nn.Linear(512, 2)
+    return model
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = PneumoniaCNN()
-model.load_state_dict(torch.load('pneumonia_cnn.pth', map_location=device))
-model.to(device).eval()
+model = get_resnet18().to(device)
+model.load_state_dict(torch.load('resnet18_pneumonia.pth', map_location=device))
+
+# Grad-CAM 타겟 레이어: 마지막 conv layer
+target_layer = model.layer4[-1]
+
+grad_cam = GradCAMResNet(model, target_layer)
 
 # ============================
-# 4. 이미지 전처리
+# 3. 전처리 함수
 # ============================
 
 transform = transforms.Compose([
@@ -87,46 +78,53 @@ transform = transforms.Compose([
 ])
 
 # ============================
-# 5. 예측 + Grad-CAM 실행
+# 4. 예측 및 Grad-CAM 시각화
 # ============================
 
-# 예측할 파일명
-test_image_path = './test_images/NORMAL2-IM-0196-0001.jpeg'
+def show_gradcam(image_path):
+    image = Image.open(image_path).convert("RGB")
+    input_tensor = transform(image).unsqueeze(0).to(device)
 
-image = Image.open(test_image_path).convert("RGB")
-input_tensor = transform(image).unsqueeze(0).to(device)
+    output = model(input_tensor)
+    probs = F.softmax(output, dim=1)
+    pred_class = torch.argmax(probs, dim=1).item()
+    prob = probs[0][1].item()
 
-# Grad-CAM 생성
-gradcam = GradCAM(model, model.conv2)
-cam = gradcam.generate(input_tensor)
+    heatmap = grad_cam.generate(input_tensor, class_idx=pred_class)
+
+    # 시각화
+    img_np = np.array(image.resize((224, 224))).astype(np.float32) / 255.0
+    if img_np.ndim == 2:
+        img_np = np.stack([img_np]*3, axis=-1)
+    elif img_np.shape[2] == 1:
+        img_np = np.concatenate([img_np]*3, axis=-1)
+
+    heatmap_resized = cv2.resize(heatmap, (224, 224))
+    heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
+    heatmap_colored = np.float32(heatmap_colored) / 255
+    cam_result = heatmap_colored * 0.5 + img_np * 0.5
+    cam_result = np.clip(cam_result, 0, 1)
+
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 3, 1)
+    plt.title("Input")
+    plt.imshow(img_np)
+    plt.axis("off")
+
+    plt.subplot(1, 3, 2)
+    plt.title("Grad-CAM")
+    plt.imshow(heatmap_resized, cmap='jet')
+    plt.axis("off")
+
+    plt.subplot(1, 3, 3)
+    plt.title(f"Overlay ({'PNEUMONIA' if pred_class else 'NORMAL'}: {prob:.2f})")
+    plt.imshow(cam_result)
+    plt.axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 # ============================
-# 6. 시각화
+# 5. 실행
 # ============================
-
-# heatmap → RGB 변환
-cam_resized = np.array(PILImage.fromarray((cam * 255).astype(np.uint8)).resize((224, 224))) / 255.0
-heatmap = plt.cm.jet(cam_resized)[..., :3]
-#heatmap = plt.cm.jet(cam)[..., :3]
-
-# 원본 이미지와 heatmap 중첩
-img_np = np.array(image.resize((224, 224))) / 255.0
-if img_np.ndim == 2:
-    img_np = np.stack([img_np]*3, axis=-1)  # 흑백 대비
-
-superimposed = heatmap * 0.5 + img_np * 0.5
-
-# 시각화 출력
-plt.figure(figsize=(8, 4))
-plt.subplot(1, 2, 1)
-plt.imshow(img_np)
-plt.title("Original Image")
-plt.axis('off')
-
-plt.subplot(1, 2, 2)
-plt.imshow(superimposed)
-plt.title("Grad-CAM Heatmap")
-plt.axis('off')
-
-plt.tight_layout()
-plt.show()
+show_gradcam("./test_images/NORMAL2-IM-0196-0001.jpeg")

@@ -1,84 +1,62 @@
 import os
-from PIL import Image
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torchvision import transforms
+from torchvision import transforms, models
+from torchvision.models import ResNet18_Weights
+from PIL import Image
 
 # ============================
-# 모델 정의 (학습할 때와 동일)
+# 1. 모델 정의
 # ============================
 
-class PneumoniaCNN(nn.Module):
-    def __init__(self):
-        super(PneumoniaCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, 3, padding=1)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(16, 32, 3, padding=1)
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(32 * 56 * 56, 128)
-        self.fc2 = nn.Linear(128, 2)
-
-    def forward(self, x):
-        x = self.pool1(F.relu(self.conv1(x)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        x = x.view(-1, 32 * 56 * 56)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+def get_resnet18_pretrained():
+    model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
+    model.fc = nn.Linear(model.fc.in_features, 2)
+    return model
 
 # ============================
-# 모델 불러오기
-# ============================
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-model = PneumoniaCNN()
-model.load_state_dict(torch.load('pneumonia_cnn.pth', map_location=device))
-model.to(device)
-model.eval()
-
-# ============================
-# 이미지 전처리
+# 2. 전처리 정의
 # ============================
 
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.Grayscale(num_output_channels=1),
+    transforms.Grayscale(num_output_channels=3),
     transforms.ToTensor()
 ])
 
 # ============================
-# 예측 함수 (Softmax + Threshold 포함)
+# 3. 모델 불러오기
 # ============================
 
-def predict_image(image_path, threshold=0.7):
-    image = Image.open(image_path).convert("RGB")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = get_resnet18_pretrained().to(device)
+model.load_state_dict(torch.load('resnet18_augmented.pth', map_location=device))
+print(model.fc)
+model.eval()
+
+# ============================
+# 4. 예측 함수
+# ============================
+
+def predict_image(image_path, threshold=0.6):
+    # image = Image.open(image_path).convert("RGB")  
+    image = Image.open(image_path).convert("L")  
     image = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
         outputs = model(image)
         probs = torch.softmax(outputs, dim=1)
         pneumonia_prob = probs[0][1].item()
-
-        # 임계값 적용
-        if pneumonia_prob > threshold:
-            pred_label = 'PNEUMONIA'
-        else:
-            pred_label = 'NORMAL'
-
-    return pred_label, pneumonia_prob
+        label = "PNEUMONIA" if pneumonia_prob > threshold else "NORMAL"
+        return label, pneumonia_prob
 
 # ============================
-# 테스트 이미지 예측
+# 5. 실행 예시
 # ============================
 
 test_folder = './test_images'
-threshold = 0.6  # 임계값 조정 가능
 
-print("예측 결과 (Threshold = {:.2f}):".format(threshold))
-for file in os.listdir(test_folder):
-    if file.lower().endswith(('.jpeg', '.jpg', '.png')):
-        path = os.path.join(test_folder, file)
-        label, confidence = predict_image(path, threshold)
-        print(f"{file} → {label} (폐렴 확률: {confidence:.2f})")
+for filename in os.listdir(test_folder):
+    if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        path = os.path.join(test_folder, filename)
+        label, prob = predict_image(path)
+        print(f"{filename} → {label} (폐렴 확률: {prob:.2f})")

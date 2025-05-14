@@ -75,5 +75,55 @@ if self.central_focus:
 ![image](https://github.com/user-attachments/assets/5a1ac055-87d3-41b4-8c3c-5c139cf78654)
 
 ---
+### 4. ResNet18 모델에 Grayscale 변환 적용
+#### 2024.05.14
+```python
+image = Image.open(image_path).convert("L")
+...
+transforms.Grayscale(num_output_channels=3)
+```
+- 학습은 RGB 이미지 기반이었으나, 추론 시 Grayscale 강제 적용
+- Grad-CAM 시선 이상, 예측 결과 전부 PNEUMONIA (확률 1.00)
+- 결과: 학습/추론 채널 불일치로 인한 오작동 발생
+---
+### 5. pretrained=False → pretrained=True 적용
+#### 2024.05.14
+```python
+model = models.resnet18(weights=ResNet18_Weights.DEFAULT)
+model.fc = nn.Linear(model.fc.in_features, 2)
+```
+- ImageNet 사전학습 가중치를 활용한 ResNet18 구조
+- 예측 시 softmax 확률이 전반적으로 상승하고, 판단이 더 명확해짐
+- 결과: 이전 모델보다 정상 이미지도 더 잘 구분하기 시작
 
+---
+### 6. PNEUMONIA에만 CentralFocus(중앙 집중 학습) 적용
+#### 2024.05.14
+```python
+if self.central_focus:
+    image = self.central_focus(image, is_normal=(label == 1))
+```
+- 폐렴 이미지에만 중앙 강조 적용
+- Grad-CAM 시선은 조금 개선되었으나, 여전히 NORMAL 정확도 낮음
+- 결과: 중앙 집중 기법은 현재 모델의 성능을 저하시킴
+- 최종 모델은 Augmentation만 적용한 baseline 버전이 가장 안정적
 
+---
+
+### 7. NORMAL에만 강한 Augmentation 적용
+#### 2024.05.14
+```python
+transform_normal = transforms.Compose([
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(20),
+    transforms.GaussianBlur(3),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4),
+    transforms.ToTensor()
+])
+```
+- 정상 이미지에만 다양한 변형을 적용해 모델이 정상 상태의 다양성을 학습하도록 유도
+- 예측 결과가 극단적이지 않고, softmax 확률이 0.4 ~ 0.7 사이로 분포
+- Grad-CAM과 confusion matrix를 통해 후속 성능 분석 예정
+- 결과: 현 시점에서 가장 균형 잡힌 모델 생성
+
+---
