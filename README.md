@@ -192,5 +192,6 @@ weighted avg       0.25      0.50      0.33        10
 - 결과: 모델이 폐 전체가 아닌 **심장/횡격막 하부 중앙**에만 집중
 - 예측 결과: 해당 NORMAL 이미지를 PNEUMONIA로 잘못 분류함
 - 시선이 잘못된 영역에 집중됨. 정상 폐 구조를 보지 못하고 있음  
+![20250515_개선후Grad-CAM](https://github.com/user-attachments/assets/a66a428c-9bab-4ded-9952-9f25848173b4)
 
 ---
