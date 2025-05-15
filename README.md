@@ -127,3 +127,70 @@ transform_normal = transforms.Compose([
 - 결과: 현 시점에서 가장 균형 잡힌 모델 생성
 
 ---
+### 8. Classification Report 분석
+#### 2024.05.15
+#### 테스트 이미지 : NORMAL 5장 / PNEUMONIA 5장  
+
+```
+              precision    recall  f1-score   support
+
+      NORMAL       0.00      0.00      0.00         5
+   PNEUMONIA       0.50      1.00      0.67         5
+
+    accuracy                           0.50        10
+   macro avg       0.25      0.50      0.33        10
+weighted avg       0.25      0.50      0.33        10
+```
+
+#### NORMAL 클래스 성능
+| 지표 | 해석 |
+|------|------|
+| **precision = 0.00** | 모델이 NORMAL로 예측한 이미지 중 실제로 NORMAL인 건 없음  
+| **recall = 0.00** | 실제 NORMAL 이미지 5장 중 한 장도 맞히지 못함  
+| **f1-score = 0.00** | precision과 recall 모두 0 → f1도 0  
+
+**결론** : 모델은 정상(NORMAL)이라는 상황을 인식하지 못함
+
+#### PNEUMONIA 클래스 성능
+| 지표 | 해석 |
+|------|------|
+| **precision = 0.50** | PNEUMONIA로 예측한 것 중 절반만 진짜 PNEUMONIA  
+| **recall = 1.00** | 모든 PNEUMONIA 이미지를 정확히 맞춤  
+| **f1-score = 0.67** | 중간 수준의 종합 성능  
+
+**결론** : 모든 이미지를 폐렴이라고 예측했기 때문에 recall은 높고 precision은 낮음
+
+#### 전체 정확도 및 평균
+| 지표 | 해석 |
+|------|------|
+| **accuracy = 0.50** | 전체 10장 중 절반만 맞춤 (실은 전부 폐렴으로 예측했기 때문)  
+| **macro avg = 0.25 / 0.50** | 클래스 불균형 고려하지 않고 단순 평균  
+| **weighted avg = 0.25 / 0.50** | 각 클래스 지원 수만큼 가중합 평균  
+
+**결론** : 모델은 일방적으로 한 클래스만 예측 → 편향(Bias) 상태
+
+> - 모델이 PNEUMONIA에는 민감하지만, **NORMAL은 무시**하는 상태 
+> - **실제 사용 환경에서는 큰 문제**가 될 수 있음 (정상도 질병이라 예측)
+
+---
+### 9. ResNet18 + FocalLoss 적용 (threshold=0.8)
+#### 2024.05.15
+- 목적: PNEUMONIA 중심 예측을 완화하고 NORMAL recall 향상 시도
+- 결과: 여전히 전체 이미지를 PNEUMONIA로 예측 (confusion matrix: all PNEUMONIA)
+- classification report:
+
+```
+              precision    recall  f1-score   support
+      NORMAL       0.00      0.00      0.00         5
+   PNEUMONIA       0.50      1.00      0.67         5
+    accuracy                           0.50        10
+```
+
+**결론** : FocalLoss만으로는 해결되지 않음. 근본적으로 NORMAL class 기준 부족.
+
+#### Grad-CAM 시각화 (NORMAL 이미지)
+- 결과: 모델이 폐 전체가 아닌 **심장/횡격막 하부 중앙**에만 집중
+- 예측 결과: 해당 NORMAL 이미지를 PNEUMONIA로 잘못 분류함
+- 시선이 잘못된 영역에 집중됨. 정상 폐 구조를 보지 못하고 있음  
+
+---

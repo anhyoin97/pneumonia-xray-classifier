@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
 from torchvision.models import ResNet18_Weights
 import torch.optim as optim
+from focal_loss import FocalLoss  
 
 # ============================
 # 1. Dataset 정의 (NORMAL transform)
@@ -93,7 +94,8 @@ train_dataset = ChestXrayAugmentedDataset(
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
 
 model = get_resnet18_pretrained().to(device)
-criterion = nn.CrossEntropyLoss()
+# criterion = nn.CrossEntropyLoss()
+criterion = FocalLoss(alpha=1, gamma=2)
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
 # ============================
